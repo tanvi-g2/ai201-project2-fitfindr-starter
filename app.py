@@ -44,10 +44,41 @@ def handle_query(user_query: str, wardrobe_choice: str) -> tuple[str, str, str]:
            session["fit_card"].
     """
     # TODO: implement this function
-    return "Agent not yet implemented.", "", ""
+    # Step 1: Guard against empty query
+    if not user_query or not user_query.strip():
+        return "Please enter a search query.", "", "", ""
 
+    # Step 2: Select wardrobe
+    wardrobe = (
+        get_example_wardrobe()
+        if wardrobe_choice == "Example wardrobe"
+        else get_empty_wardrobe()
+    )
 
-# ── interface ─────────────────────────────────────────────────────────────────
+    # Step 3: Run agent
+    session = run_agent(user_query, wardrobe)
+
+    # Step 4: Handle error
+    if session["error"]:
+        return session["error"], "", "", ""
+
+# Step 5: Format and return results
+    item = session["selected_item"]
+    retry_note = session["parsed"].get("retry_note", "")
+    
+    listing_text = (
+        (f"{retry_note}\n\n" if retry_note else "") +
+        f"Title: {item['title']}\n"
+        f"Price: ${item['price']:g}\n"
+        f"Platform: {item['platform']}\n"
+        f"Size: {item['size']}\n"
+        f"Condition: {item['condition']}\n"
+        f"Colors: {', '.join(item['colors'])}\n"
+        f"Style tags: {', '.join(item['style_tags'])}\n"
+        f"Brand: {item.get('brand') or 'unbranded'}\n"
+    )
+
+    return listing_text, session["outfit_suggestion"], session["fit_card"], session["price_comparison"]# ── interface ─────────────────────────────────────────────────────────────────
 
 EXAMPLE_QUERIES = [
     "vintage graphic tee under $30",
@@ -97,6 +128,11 @@ Describe what you're looking for — include size and price if you want to filte
                 lines=8,
                 interactive=False,
             )
+            price_output = gr.Textbox(
+                label="💰 Price check",
+                lines=8,
+                interactive=False,
+            )
 
         gr.Examples(
             examples=[[q, "Example wardrobe"] for q in EXAMPLE_QUERIES],
@@ -107,13 +143,11 @@ Describe what you're looking for — include size and price if you want to filte
         submit_btn.click(
             fn=handle_query,
             inputs=[query_input, wardrobe_choice],
-            outputs=[listing_output, outfit_output, fitcard_output],
-        )
+            outputs=[listing_output, outfit_output, fitcard_output, price_output],        )
         query_input.submit(
             fn=handle_query,
             inputs=[query_input, wardrobe_choice],
-            outputs=[listing_output, outfit_output, fitcard_output],
-        )
+            outputs=[listing_output, outfit_output, fitcard_output, price_output],        )
 
     return demo
 

@@ -18,7 +18,7 @@ Usage (once implemented):
     print(result["error"])   # None on success
 """
 
-from tools import search_listings, suggest_outfit, create_fit_card
+from tools import search_listings, suggest_outfit, create_fit_card, compare_price
 
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ def _new_session(query: str, wardrobe: dict) -> dict:
         "outfit_suggestion": None,   # string returned by suggest_outfit
         "fit_card": None,            # string returned by create_fit_card
         "error": None,               # set if the interaction ended early
+        "price_comparison": None,
     }
 
 
@@ -94,7 +95,61 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     """
     # TODO: implement the planning loop
     session = _new_session(query, wardrobe)
-    session["error"] = "Planning loop not yet implemented."
+
+    # Step 2: Parse query for description, size, max_price
+    import re
+
+# Extract size (e.g. "size M", "size XL")
+    size_match = re.search(r'\bsize\s+([A-Za-z0-9]+)\b', query, re.IGNORECASE)
+    size = size_match.group(1).upper() if size_match else None
+
+    # Extract max price
+    price_match = re.search(r'under\s+[$]?([\d]+)', query, re.IGNORECASE)    
+    max_price = float(price_match.group(1)) if price_match else None
+
+    # Description: strip size, price, and leftover "under" fragments
+    description = re.sub(r'\bsize\s+[A-Za-z0-9]+\b', '', query, flags=re.IGNORECASE)
+    description = re.sub(r'under\s+\$?[\d]+', '', description, flags=re.IGNORECASE)
+    description = re.sub(r'\bunder\b', '', description, flags=re.IGNORECASE)
+    description = ' '.join(description.split())  # collapse extra whitespace
+    session["parsed"] = {
+        "description": description,
+        "size": size,
+        "max_price": max_price,
+    }
+
+    # Step 3: Search listings
+    results = search_listings(description, size=size, max_price=max_price)
+    session["search_results"] = results
+
+    if not results and size is not None:
+        results = search_listings(description, size=None, max_price=max_price)
+        session["search_results"] = results
+        if results:
+            session["parsed"]["size"] = None
+            session["parsed"]["retry_note"] = (
+                f"No results found in size {size} — showing results for all sizes instead."
+            )
+
+    if not results:
+        session["error"] = (
+            f"No listings found for '{description}'"
+            + (f" under ${max_price:.0f}" if max_price else "")
+            + ". Try a broader description or higher price."
+        )
+        return session
+
+    # Step 4: Select top result
+    session["selected_item"] = results[0]
+    session["price_comparison"] = compare_price(session["selected_item"])
+
+    # Step 5: Suggest outfit
+    session["outfit_suggestion"] = suggest_outfit(results[0], wardrobe)
+
+    # Step 6: Create fit card
+    session["fit_card"] = create_fit_card(session["outfit_suggestion"], results[0])
+
+    # Step 7: Return session
     return session
 
 
